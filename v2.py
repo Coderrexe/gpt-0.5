@@ -5,10 +5,10 @@ from torch.nn import functional as F
 # Hyperparameters
 batch_size = 32
 block_size = 8
-max_iters = 20000
-eval_interval = 300
+max_iters = 5000
+eval_interval = 500
 # A typical good learning rate is 3e-4, but for small networks like this higher LR is fine.
-learning_rate = 1e-2
+learning_rate = 1e-3
 eval_iters = 200
 n_embd = 32 # number of embedding dimensions
 
@@ -74,18 +74,53 @@ def estimate_loss():
     return out
 
 
+class Head(nn.Module):
+    """ one head of self-attention """
+    
+    def __init__(self, head_size):
+        super().__init__()
+        self.key = nn.Linear(n_embd, head_size, bias=False)
+        self.query = nn.Linear(n_embd, head_size, bias=False)
+        self.value = nn.Linear(n_embd, head_size, bias=False)
+        self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
+    
+    def forward(self, x):
+        B, T, C = x.shape
+        k = self.key(x) # (B, T, C)
+        q = self.query(x) # (B, T, C)
+
+        # compute attention scores (affinities)
+        wei = q @ k.transpose(-2, -1) * C**-0.5 # (B, T, C) @ (B, C, T) -> (B, T, T)
+        wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf")) # (B, T, T)
+        wei = F.softmax(wei, dim=-1) # (B, T, T)
+
+        # perform weighted aggregation of the values
+        v = self.value(x) # (B, T, C)
+        out = wei @ v # (B, T, T) @ (B, T, C) -> (B, T, C)
+        return out
+
+
 class BigramLanguageModel(nn.Module):
-    def __init__(self, vocab_size):
+    def __init__(self):
         super().__init__()
         # Each token directly reads off the logits for the next token from a lookup table.
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
+        # we need position embedding, because in self-attention, the tokens have no idea where
+        # they are in the sequence, since self-attention and aggregation can be thought of as
+        # a directed graph where all previous nodes point to the next token node.
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
+        self.sa_head = Head(n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size)
     
     def forward(self, idx, targets=None):
+        B, T = idx.shape
+
         # idx and targets are both (B, T) tensor of integers.
         tok_emb = self.token_embedding_table(idx)  # (batch_size, block_size, vocab_size)
-        logits = self.lm_head(tok_emb) # (B, T, vocab_size)
+        pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # (T, C)
+        x = tok_emb + pos_emb # (B, T, C)
+        x = self.sa_head(x) # apply 1 head of self-attention
+        logits = self.lm_head(x) # (B, T, vocab_size)
         
         if targets == None:
             loss = None
@@ -100,8 +135,10 @@ class BigramLanguageModel(nn.Module):
     def generate(self, idx, max_new_tokens):
         # idx is (B, T) array of indices in the current context.
         for _ in range(max_new_tokens):
+            # crop idx to the last block_size tokens
+            idx_cond = idx[:, -block_size:]
             # Get the predictions.
-            logits, loss = self(idx)
+            logits, loss = self(idx_cond)
             # Focus only on the last time step.
             logits = logits[:, -1, :]  # becomes (B, C)
             # Apply softmax to get probabilities.
@@ -113,7 +150,7 @@ class BigramLanguageModel(nn.Module):
         return idx
 
 
-model = BigramLanguageModel(vocab_size)
+model = BigramLanguageModel()
 model.to(device)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
