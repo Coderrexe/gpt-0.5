@@ -10,6 +10,7 @@ eval_interval = 300
 # A typical good learning rate is 3e-4, but for small networks like this higher LR is fine.
 learning_rate = 1e-2
 eval_iters = 200
+n_embd = 32 # number of embedding dimensions
 
 if torch.cuda.is_available():
     device = "cuda"
@@ -77,11 +78,14 @@ class BigramLanguageModel(nn.Module):
     def __init__(self, vocab_size):
         super().__init__()
         # Each token directly reads off the logits for the next token from a lookup table.
-        self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+        self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
+        self.position_embedding_table = nn.Embedding(block_size, n_embd)
+        self.lm_head = nn.Linear(n_embd, vocab_size)
     
     def forward(self, idx, targets=None):
         # idx and targets are both (B, T) tensor of integers.
-        logits = self.token_embedding_table(idx)  # (batch_size, block_size, vocab_size)
+        tok_emb = self.token_embedding_table(idx)  # (batch_size, block_size, vocab_size)
+        logits = self.lm_head(tok_emb) # (B, T, vocab_size)
         
         if targets == None:
             loss = None
