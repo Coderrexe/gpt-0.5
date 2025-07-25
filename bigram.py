@@ -1,29 +1,34 @@
 import torch
-import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
 # Hyperparameters
-batch_size = 32  # number of independent sequences we process in parallel
-block_size = 8  # maximum context length for predictions
+batch_size = 32
+block_size = 8
 max_iters = 3000
 eval_interval = 300
-# A typical good learning rate is 3e-4, but for small networks like this 1e-2 is fine.
+# A typical good learning rate is 3e-4, but for small networks like this higher LR is fine.
 learning_rate = 1e-2
-device = "cuda" if torch.cuda.is_available() else "cpu"
 eval_iters = 200
-# ----------------
 
-torch.manual_seed(42)
+if torch.cuda.is_available():
+    device = "cuda"
+elif torch.backends.mps.is_available():
+    device = "mps"
+else:
+    device = "cpu"
+
+
+torch.manual_seed(1337)
 
 # Read in the data and inspect it.
-# wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
 with open("input.txt", "r", encoding="utf-8") as f:
     text = f.read()
 
 # Here are all the unique characters that occur in this text.
 chars = sorted(list(set(text)))
 vocab_size = len(chars)
+
 # Create a mapping from characters to integers.
 char2idx = {char:idx for idx, char in enumerate(chars)}
 idx2char = {idx:char for idx, char in enumerate(chars)}
@@ -32,7 +37,6 @@ encode = lambda s: [char2idx[char] for char in s]
 # Decoder: takes a list of integers, outputs a string.
 decode = lambda l: "".join(idx2char[i] for i in l)
 
-# Let's now encode the entire text dataset and store it into a torch.Tensor.
 data = torch.tensor(encode(text), dtype=torch.long)
 # Split data into training (90%) and validation (10%).
 n = int(0.9 * len(data))
@@ -40,7 +44,6 @@ train_data = data[:n]
 val_data = data[n:]
 
 
-# Data loading.
 def get_batch(split):
     # Generate a small batch of data of inputs x and targets y.
     data = train_data if split == "train" else val_data
@@ -52,10 +55,9 @@ def get_batch(split):
     return x, y
 
 
-# Calculate loss as a mean of many iterations.
-# torch.no_grad tells PyTorch that we will not call .backward() in this function.
-# This makes PyTorch a lot more efficient with memory use because it doesn't have to store
-# any intermediate variables.
+# calculate loss as a mean of many iterations.
+# torch.no_grad means we won't call .backward() in this function, so PyTorch
+# can be  more efficient with memory since it doesn't have to store intermediate variables.
 @torch.no_grad()
 def estimate_loss():
     out = {}
@@ -108,20 +110,20 @@ class BigramLanguageModel(nn.Module):
 
 
 model = BigramLanguageModel(vocab_size)
-model = model.to(device)
+model.to(device)
 
-# Create PyTorch optimizer.
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
+# Training loop
 for iter in range(max_iters):
-    # Every once in a while evaluate the loss on train and val sets.
     if iter % eval_interval == 0:
         losses = estimate_loss()
         print(f"Step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+    
     # Sample a random batch of data.
     xb, yb = get_batch("train")
 
-    # Evaluate the loss.
+    # Evaluate loss
     logits, loss = model(xb, yb)
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
