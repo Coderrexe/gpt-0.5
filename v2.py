@@ -79,9 +79,9 @@ class Head(nn.Module):
     
     def __init__(self, head_size):
         super().__init__()
-        self.key = nn.Linear(n_embd, head_size, bias=False)
-        self.query = nn.Linear(n_embd, head_size, bias=False)
-        self.value = nn.Linear(n_embd, head_size, bias=False)
+        self.key = nn.Linear(n_embd, head_size, bias=False) # what do I offer to others?
+        self.query = nn.Linear(n_embd, head_size, bias=False) # what am I looking for?
+        self.value = nn.Linear(n_embd, head_size, bias=False) # what should be returned if someone attends to me?
         self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
     
     def forward(self, x):
@@ -106,9 +106,48 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+        self.proj = nn.Linear(n_embd, n_embd)
 
     def forward(self, x):
-        return torch.cat([h(x) for h in self.heads], dim=-1)
+        out = torch.cat([h(x) for h in self.heads], dim=-1)
+        out = self.proj(out)
+        return out
+    
+
+class FeedForward(nn.Module):
+    """ simple linear layer followed by a non-linearity """
+
+    def __init__(self, n_embd):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(n_embd, 4 * n_embd),
+            nn.ReLU(),
+            nn.Linear(4 * n_embd, n_embd),
+        )
+
+    
+    def forward(self, x):
+        return self.net(x)
+    
+
+class Block(nn.Module):
+    """ transformer block: communication followed by computation """
+
+    def __init__(self, n_embd, n_head):
+        # n_embd: embedding dimension
+        # n_head: number of heads we'd like
+        super().__init__()
+        head_size = n_embd // n_head
+        self.sa = MultiHeadAttention(n_head, head_size)
+        self.ffwd = FeedForward(n_embd)
+        self.ln1 = nn.LayerNorm(n_embd)
+        self.ln2 = nn.LayerNorm(n_embd)
+    
+    def forward(self, x):
+        # Residual connection – better for optimisation
+        x = x + self.sa(self.ln1(x))
+        x = x + self.ffwd(self.ln2(x))
+        return x
 
 
 class BigramLanguageModel(nn.Module):
@@ -120,7 +159,12 @@ class BigramLanguageModel(nn.Module):
         # they are in the sequence, since self-attention and aggregation can be thought of as
         # a directed graph where all previous nodes point to the next token node.
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
-        self.sa_heads = MultiHeadAttention(4, n_embd//4) # 4 heads of 8-dimentional self-attention
+        self.blocks = nn.Sequential(
+            Block(n_embd, n_head=4),
+            Block(n_embd, n_head=4),
+            Block(n_embd, n_head=4),
+            nn.LayerNorm(n_embd),
+        )
         self.lm_head = nn.Linear(n_embd, vocab_size)
     
     def forward(self, idx, targets=None):
@@ -130,7 +174,7 @@ class BigramLanguageModel(nn.Module):
         tok_emb = self.token_embedding_table(idx)  # (batch_size, block_size, vocab_size)
         pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # (T, C)
         x = tok_emb + pos_emb # (B, T, C)
-        x = self.sa_heads(x) # apply 1 head of self-attention
+        x = self.blocks(x) # (B, T, C)
         logits = self.lm_head(x) # (B, T, vocab_size)
         
         if targets == None:
@@ -186,90 +230,3 @@ print(loss.item())
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
 out = decode(model.generate(context, max_new_tokens=500)[0].tolist())
 print(out)
-
-"""
-Step 0: train loss 4.7305, val loss 4.7241
-Step 300: train loss 2.8110, val loss 2.8249
-Step 600: train loss 2.5434, val loss 2.5682
-Step 900: train loss 2.4932, val loss 2.5088
-Step 1200: train loss 2.4863, val loss 2.5035
-Step 1500: train loss 2.4665, val loss 2.4921
-Step 1800: train loss 2.4683, val loss 2.4936
-Step 2100: train loss 2.4696, val loss 2.4846
-Step 2400: train loss 2.4638, val loss 2.4879
-Step 2700: train loss 2.4738, val loss 2.4911
-Step 3000: train loss 2.4613, val loss 2.4897
-Step 3300: train loss 2.4689, val loss 2.4793
-Step 3600: train loss 2.4554, val loss 2.4919
-Step 3900: train loss 2.4682, val loss 2.4906
-Step 4200: train loss 2.4634, val loss 2.4882
-Step 4500: train loss 2.4563, val loss 2.4804
-Step 4800: train loss 2.4557, val loss 2.4852
-Step 5100: train loss 2.4605, val loss 2.4926
-Step 5400: train loss 2.4614, val loss 2.4932
-Step 5700: train loss 2.4684, val loss 2.4781
-Step 6000: train loss 2.4651, val loss 2.4672
-Step 6300: train loss 2.4586, val loss 2.4858
-Step 6600: train loss 2.4696, val loss 2.4893
-Step 6900: train loss 2.4482, val loss 2.4910
-Step 7200: train loss 2.4522, val loss 2.4827
-Step 7500: train loss 2.4559, val loss 2.4896
-Step 7800: train loss 2.4423, val loss 2.4936
-Step 8100: train loss 2.4592, val loss 2.4923
-Step 8400: train loss 2.4537, val loss 2.4865
-Step 8700: train loss 2.4567, val loss 2.4805
-Step 9000: train loss 2.4510, val loss 2.4840
-Step 9300: train loss 2.4535, val loss 2.4868
-Step 9600: train loss 2.4609, val loss 2.4908
-Step 9900: train loss 2.4530, val loss 2.4864
-Step 10200: train loss 2.4458, val loss 2.4902
-Step 10500: train loss 2.4637, val loss 2.4865
-Step 10800: train loss 2.4474, val loss 2.4911
-Step 11100: train loss 2.4600, val loss 2.4898
-Step 11400: train loss 2.4519, val loss 2.4950
-Step 11700: train loss 2.4588, val loss 2.4881
-Step 12000: train loss 2.4433, val loss 2.4878
-Step 12300: train loss 2.4604, val loss 2.4895
-Step 12600: train loss 2.4548, val loss 2.4948
-Step 12900: train loss 2.4629, val loss 2.4802
-Step 13200: train loss 2.4607, val loss 2.5007
-Step 13500: train loss 2.4614, val loss 2.4952
-Step 13800: train loss 2.4599, val loss 2.4817
-Step 14100: train loss 2.4607, val loss 2.4879
-Step 14400: train loss 2.4525, val loss 2.4945
-Step 14700: train loss 2.4619, val loss 2.4917
-Step 15000: train loss 2.4550, val loss 2.5013
-Step 15300: train loss 2.4623, val loss 2.4926
-Step 15600: train loss 2.4576, val loss 2.4900
-Step 15900: train loss 2.4505, val loss 2.5004
-Step 16200: train loss 2.4572, val loss 2.4964
-Step 16500: train loss 2.4529, val loss 2.4839
-Step 16800: train loss 2.4461, val loss 2.4953
-Step 17100: train loss 2.4500, val loss 2.4875
-Step 17400: train loss 2.4530, val loss 2.4928
-Step 17700: train loss 2.4556, val loss 2.4925
-Step 18000: train loss 2.4581, val loss 2.4979
-Step 18300: train loss 2.4585, val loss 2.4991
-Step 18600: train loss 2.4564, val loss 2.4892
-Step 18900: train loss 2.4564, val loss 2.4995
-Step 19200: train loss 2.4464, val loss 2.4883
-Step 19500: train loss 2.4562, val loss 2.4906
-Step 19800: train loss 2.4565, val loss 2.5012
-2.4440457820892334
-
-Foasth prse tize herst el
-O u frnie hy:
-
-
-Hak, CORineg agnthe t rr Masearor charnge?
-Tyoucre thy, chouspo in mpery way avend ouburser sickns bekncard dhiceny
-
-He tw el fe oupise he, le stselownthers;
-Nom w
-T:
-TIONTouly m hofaruks, g he itheland's oe, oghithet f, badogienthofathatey foueay wad,
-ureisold array n
-ICoyockield, murs, in mamybalorthyongmyoorord Vofetthindy hak shil brveseay alsteanerm to, oupomp! wee d pre h, gavit gin Thean apsts lathind my d erouerse IOLUEDid n: athicorire.
-II IS:
-I
-"""
