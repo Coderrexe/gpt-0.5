@@ -61,7 +61,7 @@ def get_batch(split):
 
 # calculate loss as a mean of many iterations.
 # torch.no_grad means we won't call .backward() in this function, so PyTorch
-# can be  more efficient with memory since it doesn't have to store intermediate variables.
+# can be more efficient with memory since it doesn't have to store intermediate variables.
 @torch.no_grad()
 def estimate_loss():
     out = {}
