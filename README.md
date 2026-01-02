@@ -2,8 +2,6 @@
 
 This is a PyTorch implementation of the original transformer paper, [Attention Is All You Need (Vaswani et al., 2017)](https://arxiv.org/abs/1706.03762), based on the architecture below, trained on the TinyShakespeare dataset.
 
-<img src="transformer_architecture.png" alt="Transformer Architecture" width="300">
-
 This implementation, contained within `gpt.py`, follows the architecture described in the paper and includes all core components of the transformer model.
 
 ### Features
@@ -16,3 +14,5 @@ This implementation, contained within `gpt.py`, follows the architecture describ
 - Dropout regularization
 - Training script with TinyShakespeare dataset
 - Example usage and visualization
+
+<img src="transformer_architecture.png" alt="Transformer Architecture" width="450">
